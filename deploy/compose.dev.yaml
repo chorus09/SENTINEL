@@ -1,3 +1,4 @@
+
 services:
   postgres:
     image: postgres:17
@@ -16,10 +17,29 @@ services:
       - sentinel_postgres_data:/var/lib/postgresql/data
 
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U sentinel -d sentinel_db" ]
+      test: ["CMD-SHELL", "pg_isready -U sentinel -d sentinel_db"]
       interval: 10s
       timeout: 5s
       retries: 5
+
+  api:
+    build:
+      context: ..
+      dockerfile: src/Sentinel.Api/Dockerfile
+
+    container_name: sentinel-api
+    restart: unless-stopped
+
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__Sentinel: "Host=postgres;Port=5432;Database=sentinel_db;Username=sentinel;Password=${SENTINEL_DB_PASSWORD:?Database password is required}"
+
+    ports:
+      - "127.0.0.1:5080:8080"
+
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 volumes:
   sentinel_postgres_data:
