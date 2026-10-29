@@ -480,3 +480,9 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+.sentinel-keys/
+**/.sentinel-keys/
+
+# Local development certificates
+sentinel-local-root.crt

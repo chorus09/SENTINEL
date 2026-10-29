@@ -1,5 +1,38 @@
-
 services:
+  init-dataprotection:
+    image: alpine:3.20
+    user: "0:0"
+    restart: "no"
+
+    command: >
+      sh -c "chown -R 1654:1654 /keys &&
+             chmod 700 /keys"
+
+    volumes:
+      - sentinel_dataprotection_keys:/keys
+    networks:
+      - sentinel_internal
+
+  proxy:
+    image: caddy:2
+    container_name: sentinel-proxy
+    restart: unless-stopped
+
+    ports:
+      - "127.0.0.1:8443:8443"
+
+    volumes:
+      - ./Caddyfile.dev:/etc/caddy/Caddyfile:ro
+      - sentinel_caddy_data:/data
+      - sentinel_caddy_config:/config
+
+    depends_on:
+      - api
+
+    networks:
+      sentinel_internal:
+        ipv4_address: 172.30.77.10
+
   postgres:
     image: postgres:17
     container_name: sentinel-postgres
@@ -17,10 +50,12 @@ services:
       - sentinel_postgres_data:/var/lib/postgresql/data
 
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U sentinel -d sentinel_db"]
+      test: [ "CMD-SHELL", "pg_isready -U sentinel -d sentinel_db" ]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - sentinel_internal
 
   api:
     build:
@@ -31,15 +66,33 @@ services:
     restart: unless-stopped
 
     environment:
+      ReverseProxy__TrustedIp: "172.30.77.10"
+      DataProtection__KeysPath: /app/.sentinel-keys
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__Sentinel: "Host=postgres;Port=5432;Database=sentinel_db;Username=sentinel;Password=${SENTINEL_DB_PASSWORD:?Database password is required}"
 
-    ports:
-      - "127.0.0.1:5080:8080"
+    networks:
+      sentinel_internal:
+        ipv4_address: 172.30.77.11
+
+    volumes:
+      - sentinel_dataprotection_keys:/app/.sentinel-keys
 
     depends_on:
       postgres:
         condition: service_healthy
+      init-dataprotection:
+        condition: service_completed_successfully
 
 volumes:
   sentinel_postgres_data:
+  sentinel_dataprotection_keys:
+  sentinel_caddy_data:
+  sentinel_caddy_config:
+
+networks:
+  sentinel_internal:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.77.0/24
