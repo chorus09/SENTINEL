@@ -1,40 +1,70 @@
+using System.Net;
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
-using Sentinel.Infrastructure.Persistence;
-using Sentinel.Infrastructure.Identity;
-using Microsoft.AspNetCore.DataProtection;
+using Sentinel.Api.Authentication;
 using Sentinel.Api.Endpoints;
-using System.Net;
-using Microsoft.AspNetCore.HttpOverrides;
+using Sentinel.Infrastructure.Identity;
+using Sentinel.Infrastructure.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddDataProtection()
+builder
+    .Services.AddDataProtection()
     .SetApplicationName("SENTINEL")
     .PersistKeysToFileSystem(
         new DirectoryInfo(
             builder.Configuration["DataProtection:KeysPath"]
-            ?? Path.Combine(
-                builder.Environment.ContentRootPath,
-                ".sentinel-keys")));
+                ?? Path.Combine(builder.Environment.ContentRootPath, ".sentinel-keys")
+        )
+    );
 
 var connectionString =
     builder.Configuration.GetConnectionString("Sentinel")
-    ?? throw new InvalidOperationException(
-        "Connection string 'Sentinel' is missing.");
+    ?? throw new InvalidOperationException("Connection string 'Sentinel' is missing.");
 
-builder.Services.AddDbContext<SentinelDbContext>(options =>
-    options.UseNpgsql(connectionString));
+builder.Services.AddDbContext<SentinelDbContext>(options => options.UseNpgsql(connectionString));
 
-builder.Services
-    .AddAuthentication(IdentityConstants.ApplicationScheme)
-    .AddIdentityCookies();
+builder.Services.AddScoped<PersonalAccessTokenService>();
 
-builder.Services.AddAuthorization();
+var authenticationBuilder = builder.Services.AddAuthentication(IdentityConstants.ApplicationScheme);
 
-builder.Services
-    .AddIdentityCore<SentinelUser>(options =>
+authenticationBuilder.AddIdentityCookies();
+
+authenticationBuilder.AddScheme<
+    AuthenticationSchemeOptions,
+    PersonalAccessTokenAuthenticationHandler
+>(PersonalAccessTokenAuthenticationHandler.SchemeName, _ => { });
+
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy(
+        "CookieOnly",
+        policy =>
+        {
+            policy.AuthenticationSchemes.Add(IdentityConstants.ApplicationScheme);
+
+            policy.RequireAuthenticatedUser();
+        }
+    );
+
+    options.AddPolicy(
+        "PatOnly",
+        policy =>
+        {
+            policy.AuthenticationSchemes.Add(PersonalAccessTokenAuthenticationHandler.SchemeName);
+
+            policy.RequireAuthenticatedUser();
+        }
+    );
+});
+
+builder
+    .Services.AddIdentityCore<SentinelUser>(options =>
     {
         options.User.RequireUniqueEmail = true;
 
@@ -44,8 +74,7 @@ builder.Services
         options.Password.RequireUppercase = true;
         options.Password.RequireNonAlphanumeric = true;
 
-        options.Lockout.DefaultLockoutTimeSpan =
-            TimeSpan.FromMinutes(15);
+        options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
 
         options.Lockout.MaxFailedAccessAttempts = 5;
         options.Lockout.AllowedForNewUsers = true;
@@ -67,16 +96,14 @@ builder.Services.ConfigureApplicationCookie(options =>
 
     options.Events.OnRedirectToLogin = context =>
     {
-        context.Response.StatusCode =
-            StatusCodes.Status401Unauthorized;
+        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
 
         return Task.CompletedTask;
     };
 
     options.Events.OnRedirectToAccessDenied = context =>
     {
-        context.Response.StatusCode =
-            StatusCodes.Status403Forbidden;
+        context.Response.StatusCode = StatusCodes.Status403Forbidden;
 
         return Task.CompletedTask;
     };
@@ -105,23 +132,44 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
     }
 });
 
-builder.Services.Configure<SecurityStampValidatorOptions>(
-    options =>
-    {
-        options.ValidationInterval = TimeSpan.FromMinutes(5);
-    });
+builder.Services.Configure<SecurityStampValidatorOptions>(options =>
+{
+    options.ValidationInterval = TimeSpan.FromMinutes(5);
+});
 var app = builder.Build();
 
 app.UseForwardedHeaders();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapAuthEndpoints();
+app.MapTokenEndpoints();
+app.MapGet(
+        "/api/cli/whoami",
+        (ClaimsPrincipal user) =>
+        {
+            return Results.Ok(
+                new
+                {
+                    userId = user.FindFirstValue(ClaimTypes.NameIdentifier),
 
-app.MapGet("/health", () => Results.Ok(new
-{
-    Status = "Healthy",
-    Service = "SENTINEL API",
-    Timestamp = DateTimeOffset.UtcNow
-}));
+                    authenticationType = user.Identity?.AuthenticationType,
+                }
+            );
+        }
+    )
+    .RequireAuthorization("PatOnly");
+
+app.MapGet(
+    "/health",
+    () =>
+        Results.Ok(
+            new
+            {
+                Status = "Healthy",
+                Service = "SENTINEL API",
+                Timestamp = DateTimeOffset.UtcNow,
+            }
+        )
+);
 
 app.Run();
