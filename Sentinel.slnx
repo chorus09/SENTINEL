@@ -5,4 +5,7 @@
     <Project Path="src/Sentinel.Domain/Sentinel.Domain.csproj" />
     <Project Path="src/Sentinel.Infrastructure/Sentinel.Infrastructure.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Sentinel.IntegrationTests/Sentinel.IntegrationTests.csproj" />
+  </Folder>
 </Solution>

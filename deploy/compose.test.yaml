@@ -1,0 +1,35 @@
+name: sentinel-test
+
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: sentinel_test_db
+      POSTGRES_USER: ${SENTINEL_TEST_DB_USER:?Set SENTINEL_TEST_DB_USER in deploy/.env.test}
+      POSTGRES_PASSWORD: ${SENTINEL_TEST_DB_PASSWORD:?Set SENTINEL_TEST_DB_PASSWORD in deploy/.env.test}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  test-runner:
+    profiles: [test]
+    build:
+      context: ..
+      dockerfile: tests/Sentinel.IntegrationTests/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ConnectionStrings__Sentinel: Host=postgres;Port=5432;Database=sentinel_test_db;Username=${SENTINEL_TEST_DB_USER:?Set SENTINEL_TEST_DB_USER in deploy/.env.test};Password=${SENTINEL_TEST_DB_PASSWORD:?Set SENTINEL_TEST_DB_PASSWORD in deploy/.env.test}
+      DataProtection__KeysPath: /tmp/sentinel-test-keys
+      Logging__LogLevel__Default: Warning
+    tmpfs:
+      - /tmp/sentinel-test-keys
+
+volumes:
+  postgres-data:
