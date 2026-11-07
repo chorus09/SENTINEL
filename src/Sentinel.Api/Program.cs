@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Sentinel.Api.Authentication;
 using Sentinel.Api.Endpoints;
+using Sentinel.Api;
 using Sentinel.Infrastructure.Identity;
 using Sentinel.Infrastructure.Persistence;
 
@@ -30,6 +31,7 @@ var connectionString =
 builder.Services.AddDbContext<SentinelDbContext>(options => options.UseNpgsql(connectionString));
 
 builder.Services.AddScoped<PersonalAccessTokenService>();
+builder.Services.AddSentinelRateLimiting();
 
 var authenticationBuilder = builder.Services.AddAuthentication(IdentityConstants.ApplicationScheme);
 
@@ -164,7 +166,9 @@ builder.Services.Configure<SecurityStampValidatorOptions>(options =>
 var app = builder.Build();
 
 app.UseForwardedHeaders();
+app.UseRouting();
 app.UseAuthentication();
+app.UseRateLimiter();
 app.UseAuthorization();
 app.MapAuthEndpoints();
 app.MapTokenEndpoints();
@@ -182,7 +186,8 @@ app.MapGet(
             );
         }
     )
-    .RequireAuthorization("PatOnly");
+    .RequireAuthorization("PatOnly")
+    .RequireRateLimiting(RateLimitPolicies.CliAuthentication);
 
 app.MapGet(
     "/health",

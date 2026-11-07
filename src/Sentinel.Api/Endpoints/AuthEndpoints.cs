@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Identity;
+using Sentinel.Api;
 using Sentinel.Infrastructure.Identity;
 
 namespace Sentinel.Api.Endpoints;
@@ -74,7 +75,8 @@ public static class AuthEndpoints
                     email = user.Email
                 }
             });
-        });
+        })
+        .RequireRateLimiting(RateLimitPolicies.Login);
 
         group.MapGet("/me", async (
             ClaimsPrincipal principal,

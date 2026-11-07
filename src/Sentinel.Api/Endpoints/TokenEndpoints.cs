@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Identity;
+using Sentinel.Api;
 using Sentinel.Infrastructure.Identity;
 
 namespace Sentinel.Api.Endpoints;
@@ -84,7 +85,8 @@ public static class TokenEndpoints
                     return Results.BadRequest(new { error = ex.Message });
                 }
             }
-        );
+        )
+        .RequireRateLimiting(RateLimitPolicies.TokenCreation);
 
         group.MapDelete(
             "/{id:guid}",
@@ -109,7 +111,8 @@ public static class TokenEndpoints
 
                 return revoked ? Results.NoContent() : Results.NotFound();
             }
-        );
+        )
+        .RequireRateLimiting(RateLimitPolicies.TokenRevocation);
 
         return group;
     }
