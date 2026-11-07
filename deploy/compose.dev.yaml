@@ -66,6 +66,7 @@ services:
     restart: unless-stopped
 
     environment:
+      ReverseProxy__Enabled: "true"
       ReverseProxy__TrustedIp: "172.30.77.10"
       DataProtection__KeysPath: /app/.sentinel-keys
       ASPNETCORE_ENVIRONMENT: Development

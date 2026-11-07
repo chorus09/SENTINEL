@@ -119,16 +119,41 @@ builder.Services.AddAntiforgery(options =>
     options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
 });
 
+var reverseProxyEnabledValue = builder.Configuration["ReverseProxy:Enabled"];
+var reverseProxyEnabled = false;
+
+if (reverseProxyEnabledValue is not null
+    && !bool.TryParse(reverseProxyEnabledValue, out reverseProxyEnabled))
+{
+    throw new InvalidOperationException("ReverseProxy:Enabled must be true or false.");
+}
+
+IPAddress? trustedProxyIp = null;
+
+if (reverseProxyEnabled)
+{
+    var trustedIpValue = builder.Configuration["ReverseProxy:TrustedIp"];
+
+    if (string.IsNullOrWhiteSpace(trustedIpValue)
+        || !IPAddress.TryParse(trustedIpValue, out trustedProxyIp))
+    {
+        throw new InvalidOperationException(
+            "ReverseProxy:TrustedIp must be a valid single IP address when the reverse proxy is enabled."
+        );
+    }
+}
+
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
-    options.ForwardedHeaders = ForwardedHeaders.XForwardedProto;
-    options.ForwardLimit = 1;
+    options.ForwardedHeaders = ForwardedHeaders.None;
 
-    var proxyAddress = builder.Configuration["ReverseProxy:TrustedIp"];
-
-    if (!string.IsNullOrWhiteSpace(proxyAddress))
+    if (trustedProxyIp is not null)
     {
-        options.KnownProxies.Add(IPAddress.Parse(proxyAddress));
+        options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+        options.ForwardLimit = 1;
+        options.KnownProxies.Clear();
+        options.KnownIPNetworks.Clear();
+        options.KnownProxies.Add(trustedProxyIp);
     }
 });
 
