@@ -13,3 +13,24 @@
 
 **/TestResults
 **/coverage
+
+# Local Data Protection keys
+.sentinel-keys/
+**/.sentinel-keys/
+
+# Private certificates and keys
+sentinel-local-root.crt
+**/*.key
+**/*.pem
+**/*.p12
+**/*.pfx
+
+# Local credentials
+**/credentials
+**/credentials.*
+**/.credentials
+**/.credentials.*
+**/.aws/
+**/.azure/
+**/.config/gcloud/
+**/secrets/
