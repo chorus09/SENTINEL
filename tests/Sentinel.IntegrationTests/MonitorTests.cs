@@ -15,6 +15,26 @@ public sealed class MonitorTests : IntegrationTestBase
 {
     private const string Path = "/api/monitors/";
 
+    [Fact]
+    public async Task PublicUpdateAdvancesWorkerConfigurationVersion()
+    {
+        await LoginAsync(Client);
+        var id = await CreateAsync(Client, "versioned");
+        await Database.AssertLockHeldAsync();
+        using var scope = Factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SentinelDbContext>();
+        var before = await db.Monitors.Where(m => m.Id == id)
+            .Select(m => EF.Property<long>(m, "ConfigVersion"))
+            .SingleAsync(TestContext.Current.CancellationToken);
+        using var response = await MutateAsync(Client, HttpMethod.Put, Path + id,
+            Valid(slug: "versioned", url: "https://changed.example.invalid"));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var after = await db.Monitors.Where(m => m.Id == id)
+            .Select(m => EF.Property<long>(m, "ConfigVersion"))
+            .SingleAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(before + 1, after);
+    }
+
     [Theory]
     [InlineData("GET")]
     [InlineData("POST")]

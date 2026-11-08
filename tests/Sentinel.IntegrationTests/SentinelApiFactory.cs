@@ -16,6 +16,7 @@ internal sealed class SentinelApiFactory(string connectionString, string keysPat
             {
                 ["ConnectionStrings:Sentinel"] = connectionString,
                 ["DataProtection:KeysPath"] = keysPath,
+                ["MonitoringWorker:Enabled"] = "false",
             });
         });
     }

@@ -33,6 +33,8 @@ builder.Services.AddDbContext<SentinelDbContext>(options => options.UseNpgsql(co
 
 builder.Services.AddScoped<PersonalAccessTokenService>();
 builder.Services.AddHttpHealthChecks();
+builder.Services.Configure<MonitorWorkerOptions>(builder.Configuration.GetSection(MonitorWorkerOptions.SectionName));
+builder.Services.AddHostedService<MonitorWorker>();
 builder.Services.AddSentinelRateLimiting();
 
 var authenticationBuilder = builder.Services.AddAuthentication(IdentityConstants.ApplicationScheme);

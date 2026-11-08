@@ -50,3 +50,21 @@ See the project planning documentation in `docs/` for the detailed development r
 ## License
 
 No license selected yet.
+
+## Monitoring worker
+
+The HTTP monitoring worker is disabled by default. Apply the `AddMonitorLeases`
+EF Core migration through the approved deployment process before enabling it.
+The API does not apply migrations at startup.
+
+Set `MonitoringWorker__Enabled=true` on one intended API instance after the
+migration succeeds. The default settings are a 5 second poll interval, up to 5
+concurrent checks, a batch size of 10 and a 60 second lease. They can be changed
+with `MonitoringWorker__PollIntervalSeconds`, `MonitoringWorker__MaxConcurrentChecks`,
+`MonitoringWorker__BatchSize` and `MonitoringWorker__LeaseDurationSeconds`.
+Keep the lease longer than the maximum 30 second check timeout plus a safety margin.
+
+When running multiple API replicas, enable the worker only on the intended
+replicas. PostgreSQL leases coordinate enabled replicas, but a process failure
+may cause a check to run again after lease expiry. Check outcomes are logged;
+history storage is not part of this feature.

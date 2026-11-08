@@ -158,6 +158,12 @@ namespace Sentinel.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<long>("ConfigVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(0L);
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -166,6 +172,12 @@ namespace Sentinel.Infrastructure.Persistence.Migrations
 
                     b.Property<bool>("IsEnabled")
                         .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset?>("LeaseExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("LeaseId")
+                        .HasColumnType("uuid");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -193,10 +205,17 @@ namespace Sentinel.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("NextCheckAt")
+                        .HasDatabaseName("IX_monitors_Due")
+                        .HasFilter("\"IsEnabled\" = TRUE");
+
                     b.HasIndex("OwnerId", "Slug")
                         .IsUnique();
 
-                    b.ToTable("monitors", (string)null);
+                    b.ToTable("monitors", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_monitors_LeasePair", "(\"LeaseId\" IS NULL) = (\"LeaseExpiresAt\" IS NULL)");
+                        });
                 });
 
             modelBuilder.Entity("Sentinel.Infrastructure.Identity.PersonalAccessToken", b =>

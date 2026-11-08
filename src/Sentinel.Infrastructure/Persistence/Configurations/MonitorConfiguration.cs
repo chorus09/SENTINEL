@@ -35,6 +35,20 @@ public sealed class MonitorConfiguration
         builder.HasIndex(m => new { m.OwnerId, m.Slug })
             .IsUnique();
 
+        builder.Property<Guid?>("LeaseId");
+        builder.Property<DateTimeOffset?>("LeaseExpiresAt");
+        builder.Property<long>("ConfigVersion")
+            .HasDefaultValue(0L)
+            .IsConcurrencyToken();
+
+        builder.HasIndex(m => new { m.NextCheckAt })
+            .HasDatabaseName("IX_monitors_Due")
+            .HasFilter("\"IsEnabled\" = TRUE");
+
+        builder.ToTable(table => table.HasCheckConstraint(
+            "CK_monitors_LeasePair",
+            "(\"LeaseId\" IS NULL) = (\"LeaseExpiresAt\" IS NULL)"));
+
         builder.Property(m => m.IntervalSeconds)
             .IsRequired();
 

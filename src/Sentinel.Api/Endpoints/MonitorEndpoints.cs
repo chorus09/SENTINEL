@@ -77,7 +77,9 @@ public static class MonitorEndpoints
             monitor.IsEnabled = values.IsEnabled;
             monitor.NextCheckAt = !values.IsEnabled ? null
                 : reschedule ? DateTimeOffset.UtcNow.AddSeconds(values.IntervalSeconds) : monitor.NextCheckAt;
+            db.Entry(monitor).Property<long>("ConfigVersion").CurrentValue++;
             try { await db.SaveChangesAsync(ct); }
+            catch (DbUpdateConcurrencyException) { return Results.Conflict(new { error = "Monitor changed; retry the update." }); }
             catch (DbUpdateException ex) when (IsSlugConflict(ex)) { return SlugConflict(); }
             return Results.Ok(ToResponse(monitor));
         });
