@@ -5,6 +5,7 @@ using Sentinel.Infrastructure.Identity;
 
 
 using MonitorEntity = Sentinel.Domain.Entities.Monitor;
+using Sentinel.Domain.Entities;
 
 namespace Sentinel.Infrastructure.Persistence;
 
@@ -18,6 +19,7 @@ public sealed class SentinelDbContext
     }
 
     public DbSet<MonitorEntity> Monitors => Set<MonitorEntity>();
+    public DbSet<MonitorCheckResult> MonitorCheckResults => Set<MonitorCheckResult>();
     public DbSet<PersonalAccessToken> PersonalAccessTokens
     => Set<PersonalAccessToken>();
 

@@ -62,6 +62,7 @@ public sealed class MonitorWorker : BackgroundService
 
     private async Task ProcessAsync(ClaimedMonitor claim, CancellationToken cancellationToken)
     {
+        HttpHealthCheckResult result;
         try
         {
             var monitor = new MonitorEntity
@@ -70,7 +71,7 @@ public sealed class MonitorWorker : BackgroundService
                 TimeoutSeconds = claim.TimeoutSeconds, IntervalSeconds = claim.IntervalSeconds,
                 IsEnabled = true,
             };
-            var result = await _checker.CheckAsync(monitor, cancellationToken);
+            result = await _checker.CheckAsync(monitor, cancellationToken);
             _logger.LogInformation("Monitor {MonitorId} check {Outcome} status {StatusCode} duration {DurationMs}ms",
                 claim.Id, result.Outcome, result.StatusCode, result.Duration.TotalMilliseconds);
         }
@@ -82,13 +83,14 @@ public sealed class MonitorWorker : BackgroundService
         catch (Exception)
         {
             _logger.LogWarning("Monitor {MonitorId} check failed unexpectedly.", claim.Id);
+            return;
         }
 
         try
         {
             await using var scope = _scopeFactory.CreateAsyncScope();
             var store = new MonitorLeaseStore(scope.ServiceProvider.GetRequiredService<SentinelDbContext>());
-            var completed = await store.CompleteAsync(claim, cancellationToken);
+            var completed = await store.CompleteAsync(claim, result, cancellationToken);
             if (completed == 0) await store.ReleaseAsync(claim, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

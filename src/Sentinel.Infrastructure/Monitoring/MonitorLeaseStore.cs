@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using NpgsqlTypes;
+using Sentinel.Application.Monitoring;
+using Sentinel.Domain.Entities;
 using Sentinel.Infrastructure.Persistence;
 
 namespace Sentinel.Infrastructure.Monitoring;
@@ -55,8 +57,16 @@ internal sealed class MonitorLeaseStore(SentinelDbContext db)
         return claimed;
     }
 
-    public Task<int> CompleteAsync(ClaimedMonitor claim, CancellationToken cancellationToken) =>
-        db.Database.ExecuteSqlInterpolatedAsync($"""
+    public async Task<int> CompleteAsync(ClaimedMonitor claim, HttpHealthCheckResult result,
+        CancellationToken cancellationToken)
+    {
+        if (!Enum.IsDefined(result.Outcome)
+            || result.StatusCode is < 100 or > 599)
+            throw new InvalidOperationException("The check result classification is invalid.");
+
+        var duration = (int)Math.Clamp(Math.Ceiling(result.Duration.TotalMilliseconds), 0, int.MaxValue);
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var updated = await db.Database.ExecuteSqlInterpolatedAsync($"""
             UPDATE monitors
             SET "LeaseId" = NULL, "LeaseExpiresAt" = NULL,
                 "NextCheckAt" = clock_timestamp() + "IntervalSeconds" * INTERVAL '1 second'
@@ -65,6 +75,21 @@ internal sealed class MonitorLeaseStore(SentinelDbContext db)
               AND "ConfigVersion" = {claim.ConfigVersion}
               AND "IsEnabled" = TRUE;
             """, cancellationToken);
+        if (updated != 1) return 0;
+
+        db.MonitorCheckResults.Add(new MonitorCheckResult
+        {
+            Id = Guid.NewGuid(),
+            MonitorId = claim.Id,
+            CheckedAt = DateTimeOffset.UtcNow,
+            DurationMilliseconds = duration,
+            Outcome = result.Outcome.ToString(),
+            HttpStatusCode = result.StatusCode,
+        });
+        await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return 1;
+    }
 
     public Task<int> ReleaseAsync(ClaimedMonitor claim, CancellationToken cancellationToken) =>
         db.Database.ExecuteSqlInterpolatedAsync($"""

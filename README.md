@@ -53,8 +53,11 @@ No license selected yet.
 
 ## Monitoring worker
 
-The HTTP monitoring worker is disabled by default. Apply the `AddMonitorLeases`
-EF Core migration through the approved deployment process before enabling it.
+The HTTP monitoring worker is disabled by default. Apply all pending EF Core
+migrations, including `AddMonitorOwnership`, `AddMonitorLeases` and
+`AddMonitorCheckResults`, through the approved deployment process before
+enabling it. `AddMonitorOwnership` refuses to assign existing unowned monitors;
+resolve any such records explicitly before migration.
 The API does not apply migrations at startup.
 
 Set `MonitoringWorker__Enabled=true` on one intended API instance after the
@@ -66,5 +69,11 @@ Keep the lease longer than the maximum 30 second check timeout plus a safety mar
 
 When running multiple API replicas, enable the worker only on the intended
 replicas. PostgreSQL leases coordinate enabled replicas, but a process failure
-may cause a check to run again after lease expiry. Check outcomes are logged;
-history storage is not part of this feature.
+may cause a check to run again after lease expiry. Check outcomes are logged
+without response bodies or network diagnostics.
+
+Check history is retained when the worker successfully finalizes a lease.
+Owners can read it through `GET /api/monitors/{id}/checks` with keyset pagination
+(20 results by default, at most 100 per page). Deleting a monitor removes its
+history. The table grows over time; a retention policy and cleanup process
+will be designed separately. No automatic retention runs in this version.

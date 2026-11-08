@@ -218,6 +218,43 @@ namespace Sentinel.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Sentinel.Domain.Entities.MonitorCheckResult", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CheckedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("DurationMilliseconds")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("HttpStatusCode")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("MonitorId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MonitorId", "CheckedAt", "Id")
+                        .IsDescending(false, true, true)
+                        .HasDatabaseName("IX_monitor_check_results_Monitor_Recent");
+
+                    b.ToTable("monitor_check_results", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_monitor_check_results_Duration", "\"DurationMilliseconds\" >= 0");
+
+                            t.HasCheckConstraint("CK_monitor_check_results_HttpStatus", "\"HttpStatusCode\" IS NULL OR \"HttpStatusCode\" BETWEEN 100 AND 599");
+                        });
+                });
+
             modelBuilder.Entity("Sentinel.Infrastructure.Identity.PersonalAccessToken", b =>
                 {
                     b.Property<Guid>("Id")
@@ -383,6 +420,15 @@ namespace Sentinel.Infrastructure.Persistence.Migrations
                     b.HasOne("Sentinel.Infrastructure.Identity.SentinelUser", null)
                         .WithMany()
                         .HasForeignKey("OwnerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Sentinel.Domain.Entities.MonitorCheckResult", b =>
+                {
+                    b.HasOne("Sentinel.Domain.Entities.Monitor", null)
+                        .WithMany()
+                        .HasForeignKey("MonitorId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

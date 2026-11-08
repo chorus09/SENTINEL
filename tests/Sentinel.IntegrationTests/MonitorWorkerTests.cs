@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Sentinel.Application.Monitoring;
+using Sentinel.Domain.Entities;
 using Sentinel.Infrastructure.Identity;
 using Sentinel.Infrastructure.Monitoring;
 using Sentinel.Infrastructure.Persistence;
@@ -43,6 +44,47 @@ public sealed class MonitorWorkerTests : IntegrationTestBase
         Assert.Null(state.LeaseExpiresAt);
         Assert.True(state.NextCheckAt >= before.AddSeconds(60));
         Assert.True(state.NextCheckAt <= DateTimeOffset.UtcNow.AddSeconds(60));
+        var saved = Assert.Single(await HistoryAsync(id));
+        Assert.Equal(nameof(HttpHealthCheckOutcome.Healthy), saved.Outcome);
+        Assert.Equal(200, saved.HttpStatusCode);
+        Assert.Equal(0, saved.DurationMilliseconds);
+    }
+
+    [Theory]
+    [InlineData(HttpHealthCheckOutcome.HttpError, 500)]
+    [InlineData(HttpHealthCheckOutcome.Timeout, null)]
+    [InlineData(HttpHealthCheckOutcome.DnsFailure, null)]
+    public async Task UnsuccessfulStructuredChecksArePersisted(HttpHealthCheckOutcome outcome, int? status)
+    {
+        var id = await CreateMonitorAsync();
+        using var worker = Worker(_ => Task.FromResult(
+            new HttpHealthCheckResult(outcome, status, TimeSpan.FromMilliseconds(12.2))));
+        Assert.Equal(1, await worker.RunBatchAsync(TestContext.Current.CancellationToken));
+        var saved = Assert.Single(await HistoryAsync(id));
+        Assert.Equal(outcome.ToString(), saved.Outcome);
+        Assert.Equal(status, saved.HttpStatusCode);
+        Assert.Equal(13, saved.DurationMilliseconds);
+    }
+
+    [Fact]
+    public async Task ResultInsertFailureRollsBackSchedulingAndLeaseRelease()
+    {
+        var id = await CreateMonitorAsync();
+        await Database.AssertLockHeldAsync();
+        using (var scope = Factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<SentinelDbContext>();
+            await db.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE monitor_check_results ADD CONSTRAINT CK_test_reject_insert CHECK (FALSE)",
+                TestContext.Current.CancellationToken);
+        }
+        var before = await ReadAsync(id);
+        using var worker = Worker(_ => Task.FromResult(Healthy));
+        Assert.Equal(1, await worker.RunBatchAsync(TestContext.Current.CancellationToken));
+        var after = await ReadAsync(id);
+        Assert.Equal(before.NextCheckAt, after.NextCheckAt);
+        Assert.NotNull(after.LeaseId);
+        Assert.Empty(await HistoryAsync(id));
     }
 
     [Fact]
@@ -75,8 +117,11 @@ public sealed class MonitorWorkerTests : IntegrationTestBase
         Assert.Equal(2, await worker.RunBatchAsync(TestContext.Current.CancellationToken));
         Assert.Contains(failed, checkedIds);
         Assert.Contains(other, checkedIds);
-        Assert.True((await ReadAsync(failed)).NextCheckAt >= before.AddSeconds(60));
+        Assert.True((await ReadAsync(failed)).NextCheckAt <= before);
+        Assert.NotNull((await ReadAsync(failed)).LeaseId);
+        Assert.Empty(await HistoryAsync(failed));
         Assert.True((await ReadAsync(other)).NextCheckAt >= before.AddSeconds(60));
+        Assert.Single(await HistoryAsync(other));
     }
 
     [Fact]
@@ -125,6 +170,7 @@ public sealed class MonitorWorkerTests : IntegrationTestBase
         Assert.Equal(1, await worker.RunBatchAsync(TestContext.Current.CancellationToken));
         Assert.Equal(1, calls);
         Assert.Null((await ReadAsync(id)).LeaseId);
+        Assert.Single(await HistoryAsync(id));
     }
 
     [Fact]
@@ -159,6 +205,36 @@ public sealed class MonitorWorkerTests : IntegrationTestBase
             var state = await ReadAsync(id);
             Assert.Equal(replacement, state.LeaseId);
             Assert.Equal(expected.NextCheckAt, state.NextCheckAt);
+            Assert.Empty(await HistoryAsync(id));
+        }
+        finally { release.TrySetResult(); }
+    }
+
+    [Fact]
+    public async Task ExpiredLeaseCannotPersistResultOrAdvanceSchedule()
+    {
+        var id = await CreateMonitorAsync();
+        var entered = Signal();
+        var release = Signal();
+        using var worker = Worker(async _ =>
+        {
+            entered.TrySetResult();
+            await release.Task;
+            return Healthy;
+        });
+        var run = worker.RunBatchAsync(TestContext.Current.CancellationToken);
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+            var before = await ReadAsync(id);
+            await ChangeAsync(id, db => db.Entry(db.Monitors.Local.Single())
+                .Property<DateTimeOffset?>("LeaseExpiresAt").CurrentValue = DateTimeOffset.UtcNow.AddSeconds(-1));
+            release.TrySetResult();
+            Assert.Equal(1, await run);
+            var after = await ReadAsync(id);
+            Assert.Equal(before.NextCheckAt, after.NextCheckAt);
+            Assert.Null(after.LeaseId);
+            Assert.Empty(await HistoryAsync(id));
         }
         finally { release.TrySetResult(); }
     }
@@ -187,6 +263,7 @@ public sealed class MonitorWorkerTests : IntegrationTestBase
             release.TrySetResult();
             Assert.Equal(1, await oldRun);
             Assert.Equal(afterCurrent.NextCheckAt, (await ReadAsync(id)).NextCheckAt);
+            Assert.Single(await HistoryAsync(id));
         }
         finally { release.TrySetResult(); }
     }
@@ -298,6 +375,7 @@ public sealed class MonitorWorkerTests : IntegrationTestBase
             release.TrySetResult();
             Assert.Equal(1, await run);
             Assert.False(await db.Monitors.AnyAsync(m => m.Id == id, TestContext.Current.CancellationToken));
+            Assert.Empty(await HistoryAsync(id));
         }
         finally { release.TrySetResult(); }
     }
@@ -326,6 +404,7 @@ public sealed class MonitorWorkerTests : IntegrationTestBase
             Assert.False(state.IsEnabled);
             Assert.Null(state.NextCheckAt);
             Assert.Null(state.LeaseId);
+            Assert.Empty(await HistoryAsync(id));
         }
         finally { release.TrySetResult(); }
     }
@@ -360,6 +439,7 @@ public sealed class MonitorWorkerTests : IntegrationTestBase
             Assert.Equal(120, state.IntervalSeconds);
             Assert.Equal(expected.NextCheckAt, state.NextCheckAt);
             Assert.Null(state.LeaseId);
+            Assert.Empty(await HistoryAsync(id));
         }
         finally { release.TrySetResult(); }
     }
@@ -456,6 +536,15 @@ public sealed class MonitorWorkerTests : IntegrationTestBase
         var db = scope.ServiceProvider.GetRequiredService<SentinelDbContext>();
         return await db.Monitors.CountAsync(m => EF.Property<Guid?>(m, "LeaseId") != null,
             TestContext.Current.CancellationToken);
+    }
+
+    private async Task<List<MonitorCheckResult>> HistoryAsync(Guid id)
+    {
+        await Database.AssertLockHeldAsync();
+        using var scope = Factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SentinelDbContext>();
+        return await db.MonitorCheckResults.AsNoTracking().Where(x => x.MonitorId == id)
+            .ToListAsync(TestContext.Current.CancellationToken);
     }
 
     private static TaskCompletionSource Signal() => new(TaskCreationOptions.RunContinuationsAsynchronously);
