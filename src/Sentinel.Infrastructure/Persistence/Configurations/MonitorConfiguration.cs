@@ -1,6 +1,7 @@
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using Sentinel.Infrastructure.Identity;
 using MonitorEntity = Sentinel.Domain.Entities.Monitor;
 
 namespace Sentinel.Infrastructure.Persistence.Configurations;
@@ -26,7 +27,12 @@ public sealed class MonitorConfiguration
             .IsRequired()
             .HasMaxLength(2048);
 
-        builder.HasIndex(m => m.Slug)
+        builder.HasOne<SentinelUser>()
+            .WithMany()
+            .HasForeignKey(m => m.OwnerId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasIndex(m => new { m.OwnerId, m.Slug })
             .IsUnique();
 
         builder.Property(m => m.IntervalSeconds)

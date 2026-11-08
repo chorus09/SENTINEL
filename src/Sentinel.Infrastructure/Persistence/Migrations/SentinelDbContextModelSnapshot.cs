@@ -175,6 +175,9 @@ namespace Sentinel.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("NextCheckAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<Guid>("OwnerId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Slug")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -190,7 +193,7 @@ namespace Sentinel.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Slug")
+                    b.HasIndex("OwnerId", "Slug")
                         .IsUnique();
 
                     b.ToTable("monitors", (string)null);
@@ -352,6 +355,15 @@ namespace Sentinel.Infrastructure.Persistence.Migrations
                     b.HasOne("Sentinel.Infrastructure.Identity.SentinelUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Sentinel.Domain.Entities.Monitor", b =>
+                {
+                    b.HasOne("Sentinel.Infrastructure.Identity.SentinelUser", null)
+                        .WithMany()
+                        .HasForeignKey("OwnerId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

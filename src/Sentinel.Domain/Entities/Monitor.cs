@@ -4,6 +4,7 @@ namespace Sentinel.Domain.Entities;
 public sealed class Monitor
 {
     public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid OwnerId { get; set; }
 
     public string Name { get; set; } = string.Empty;
 

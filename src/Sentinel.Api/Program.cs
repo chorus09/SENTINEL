@@ -172,6 +172,7 @@ app.UseRateLimiter();
 app.UseAuthorization();
 app.MapAuthEndpoints();
 app.MapTokenEndpoints();
+app.MapMonitorEndpoints();
 app.MapGet(
         "/api/cli/whoami",
         (ClaimsPrincipal user) =>
