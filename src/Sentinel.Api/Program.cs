@@ -10,6 +10,7 @@ using Sentinel.Api.Authentication;
 using Sentinel.Api.Endpoints;
 using Sentinel.Api;
 using Sentinel.Infrastructure.Identity;
+using Sentinel.Infrastructure.Monitoring;
 using Sentinel.Infrastructure.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -31,6 +32,7 @@ var connectionString =
 builder.Services.AddDbContext<SentinelDbContext>(options => options.UseNpgsql(connectionString));
 
 builder.Services.AddScoped<PersonalAccessTokenService>();
+builder.Services.AddHttpHealthChecks();
 builder.Services.AddSentinelRateLimiting();
 
 var authenticationBuilder = builder.Services.AddAuthentication(IdentityConstants.ApplicationScheme);
