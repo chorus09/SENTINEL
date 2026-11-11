@@ -30,6 +30,7 @@ var connectionString =
     ?? throw new InvalidOperationException("Connection string 'Sentinel' is missing.");
 
 builder.Services.AddDbContext<SentinelDbContext>(options => options.UseNpgsql(connectionString));
+builder.Services.AddSingleton(TimeProvider.System);
 
 builder.Services.AddScoped<PersonalAccessTokenService>();
 builder.Services.AddHttpHealthChecks();

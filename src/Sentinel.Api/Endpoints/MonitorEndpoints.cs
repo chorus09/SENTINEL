@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using Sentinel.Application.Monitoring;
 using Sentinel.Infrastructure.Persistence;
 using MonitorEntity = Sentinel.Domain.Entities.Monitor;
 
@@ -33,6 +34,27 @@ public static class MonitorEndpoints
             var monitor = await db.Monitors.AsNoTracking()
                 .SingleOrDefaultAsync(m => m.Id == id && m.OwnerId == ownerId, ct);
             return monitor is null ? Results.NotFound() : Results.Ok(ToResponse(monitor));
+        });
+
+        group.MapGet("/{id:guid}/status", async (Guid id, ClaimsPrincipal user, SentinelDbContext db, TimeProvider clock,
+            CancellationToken ct) =>
+        {
+            if (!TryGetOwnerId(user, out var ownerId)) return Results.Unauthorized();
+            var monitor = await db.Monitors.AsNoTracking()
+                .SingleOrDefaultAsync(m => m.Id == id && m.OwnerId == ownerId, ct);
+            if (monitor is null) return Results.NotFound();
+
+            var latest = await db.MonitorCheckResults.AsNoTracking()
+                .Where(x => x.MonitorId == id)
+                .OrderByDescending(x => x.CheckedAt).ThenByDescending(x => x.Id)
+                .Select(x => new { x.CheckedAt, x.Outcome, x.HttpStatusCode, x.DurationMilliseconds })
+                .FirstOrDefaultAsync(ct);
+
+            var status = ObservedStatusPolicy.GetStatus(monitor.IsEnabled, monitor.IntervalSeconds,
+                latest?.CheckedAt, latest?.Outcome, clock.GetUtcNow());
+            return Results.Ok(new MonitorObservedStatusResponse(monitor.Id, monitor.Name, monitor.IsEnabled,
+                status, latest?.CheckedAt, latest?.Outcome, latest?.HttpStatusCode,
+                latest?.DurationMilliseconds));
         });
 
         group.MapPost("/", async (MonitorRequest? request, HttpContext context, IAntiforgery antiforgery,
@@ -146,3 +168,6 @@ public sealed record MonitorRequest(string? Name, string? Slug, string? Url,
 
 public sealed record MonitorResponse(Guid Id, Guid OwnerId, string Name, string Slug, string Url,
     int IntervalSeconds, int TimeoutSeconds, bool IsEnabled, DateTimeOffset CreatedAt, DateTimeOffset? NextCheckAt);
+
+public sealed record MonitorObservedStatusResponse(Guid MonitorId, string Name, bool IsEnabled, string Status,
+    DateTimeOffset? LastCheckedAt, string? LastOutcome, int? LastHttpStatusCode, int? LastResponseTimeMs);
