@@ -58,6 +58,15 @@ public sealed class MonitorConfiguration
         builder.Property(m => m.IsEnabled)
             .IsRequired();
 
+        builder.Property(m => m.ConsecutiveUnhealthyCount).HasDefaultValue(0).IsRequired();
+        builder.Property(m => m.ConsecutiveHealthyCount).HasDefaultValue(0).IsRequired();
+
+        builder.ToTable(table =>
+        {
+            table.HasCheckConstraint("CK_monitors_ConsecutiveUnhealthyCount", "\"ConsecutiveUnhealthyCount\" >= 0");
+            table.HasCheckConstraint("CK_monitors_ConsecutiveHealthyCount", "\"ConsecutiveHealthyCount\" >= 0");
+        });
+
         builder.Property(m => m.CreatedAt)
             .IsRequired();
     }

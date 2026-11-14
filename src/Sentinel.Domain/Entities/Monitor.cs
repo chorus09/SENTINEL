@@ -18,6 +18,10 @@ public sealed class Monitor
 
     public bool IsEnabled { get; set; } = true;
 
+    public int ConsecutiveUnhealthyCount { get; set; }
+
+    public int ConsecutiveHealthyCount { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
         = DateTimeOffset.UtcNow;
 

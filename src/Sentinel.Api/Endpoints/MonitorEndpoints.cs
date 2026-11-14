@@ -97,6 +97,9 @@ public static class MonitorEndpoints
             monitor.IntervalSeconds = values.IntervalSeconds;
             monitor.TimeoutSeconds = values.TimeoutSeconds;
             monitor.IsEnabled = values.IsEnabled;
+            // Every update advances ConfigVersion and invalidates in-flight checks.
+            monitor.ConsecutiveUnhealthyCount = 0;
+            monitor.ConsecutiveHealthyCount = 0;
             monitor.NextCheckAt = !values.IsEnabled ? null
                 : reschedule ? DateTimeOffset.UtcNow.AddSeconds(values.IntervalSeconds) : monitor.NextCheckAt;
             db.Entry(monitor).Property<long>("ConfigVersion").CurrentValue++;

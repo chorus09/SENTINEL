@@ -20,6 +20,7 @@ public sealed class SentinelDbContext
 
     public DbSet<MonitorEntity> Monitors => Set<MonitorEntity>();
     public DbSet<MonitorCheckResult> MonitorCheckResults => Set<MonitorCheckResult>();
+    public DbSet<MonitorIncident> MonitorIncidents => Set<MonitorIncident>();
     public DbSet<PersonalAccessToken> PersonalAccessTokens
     => Set<PersonalAccessToken>();
 

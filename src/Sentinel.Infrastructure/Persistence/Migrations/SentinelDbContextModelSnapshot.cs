@@ -164,6 +164,16 @@ namespace Sentinel.Infrastructure.Persistence.Migrations
                         .HasColumnType("bigint")
                         .HasDefaultValue(0L);
 
+                    b.Property<int>("ConsecutiveHealthyCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<int>("ConsecutiveUnhealthyCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -214,6 +224,10 @@ namespace Sentinel.Infrastructure.Persistence.Migrations
 
                     b.ToTable("monitors", null, t =>
                         {
+                            t.HasCheckConstraint("CK_monitors_ConsecutiveHealthyCount", "\"ConsecutiveHealthyCount\" >= 0");
+
+                            t.HasCheckConstraint("CK_monitors_ConsecutiveUnhealthyCount", "\"ConsecutiveUnhealthyCount\" >= 0");
+
                             t.HasCheckConstraint("CK_monitors_LeasePair", "(\"LeaseId\" IS NULL) = (\"LeaseExpiresAt\" IS NULL)");
                         });
                 });
@@ -252,6 +266,38 @@ namespace Sentinel.Infrastructure.Persistence.Migrations
                             t.HasCheckConstraint("CK_monitor_check_results_Duration", "\"DurationMilliseconds\" >= 0");
 
                             t.HasCheckConstraint("CK_monitor_check_results_HttpStatus", "\"HttpStatusCode\" IS NULL OR \"HttpStatusCode\" BETWEEN 100 AND 599");
+                        });
+                });
+
+            modelBuilder.Entity("Sentinel.Domain.Entities.MonitorIncident", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("MonitorId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("OpenedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("ResolvedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MonitorId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_monitor_incidents_Monitor_Open")
+                        .HasFilter("\"ResolvedAt\" IS NULL");
+
+                    b.HasIndex("MonitorId", "OpenedAt", "Id")
+                        .IsDescending(false, true, true)
+                        .HasDatabaseName("IX_monitor_incidents_Monitor_Recent");
+
+                    b.ToTable("monitor_incidents", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_monitor_incidents_ResolvedAt", "\"ResolvedAt\" IS NULL OR \"ResolvedAt\" >= \"OpenedAt\"");
                         });
                 });
 
@@ -425,6 +471,15 @@ namespace Sentinel.Infrastructure.Persistence.Migrations
                 });
 
             modelBuilder.Entity("Sentinel.Domain.Entities.MonitorCheckResult", b =>
+                {
+                    b.HasOne("Sentinel.Domain.Entities.Monitor", null)
+                        .WithMany()
+                        .HasForeignKey("MonitorId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Sentinel.Domain.Entities.MonitorIncident", b =>
                 {
                     b.HasOne("Sentinel.Domain.Entities.Monitor", null)
                         .WithMany()

@@ -65,11 +65,19 @@ internal sealed class MonitorLeaseStore(SentinelDbContext db)
             throw new InvalidOperationException("The check result classification is invalid.");
 
         var duration = (int)Math.Clamp(Math.Ceiling(result.Duration.TotalMilliseconds), 0, int.MaxValue);
+        var healthy = result.Outcome == HttpHealthCheckOutcome.Healthy;
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         var updated = await db.Database.ExecuteSqlInterpolatedAsync($"""
             UPDATE monitors
             SET "LeaseId" = NULL, "LeaseExpiresAt" = NULL,
-                "NextCheckAt" = clock_timestamp() + "IntervalSeconds" * INTERVAL '1 second'
+                "NextCheckAt" = clock_timestamp() + "IntervalSeconds" * INTERVAL '1 second',
+                "ConsecutiveUnhealthyCount" = CASE WHEN {healthy} THEN 0
+                    WHEN "ConsecutiveUnhealthyCount" < 2147483647
+                    THEN "ConsecutiveUnhealthyCount" + 1 ELSE 2147483647 END,
+                "ConsecutiveHealthyCount" = CASE WHEN {healthy}
+                    THEN CASE WHEN "ConsecutiveHealthyCount" < 2147483647
+                        THEN "ConsecutiveHealthyCount" + 1 ELSE 2147483647 END
+                    ELSE 0 END
             WHERE "Id" = {claim.Id} AND "LeaseId" = {claim.LeaseId}
               AND "LeaseExpiresAt" > clock_timestamp()
               AND "ConfigVersion" = {claim.ConfigVersion}
@@ -77,15 +85,43 @@ internal sealed class MonitorLeaseStore(SentinelDbContext db)
             """, cancellationToken);
         if (updated != 1) return 0;
 
-        db.MonitorCheckResults.Add(new MonitorCheckResult
+        var counts = await db.Monitors.AsNoTracking().Where(m => m.Id == claim.Id)
+            .Select(m => new { m.ConsecutiveUnhealthyCount, m.ConsecutiveHealthyCount })
+            .SingleAsync(cancellationToken);
+        // Use the database clock so different worker hosts agree on transition time.
+        var checkedAt = await db.Database.SqlQuery<DateTimeOffset>(
+            $"SELECT clock_timestamp() AS \"Value\"").SingleAsync(cancellationToken);
+        var check = new MonitorCheckResult
         {
             Id = Guid.NewGuid(),
             MonitorId = claim.Id,
-            CheckedAt = DateTimeOffset.UtcNow,
+            CheckedAt = checkedAt,
             DurationMilliseconds = duration,
             Outcome = result.Outcome.ToString(),
             HttpStatusCode = result.StatusCode,
-        });
+        };
+        db.MonitorCheckResults.Add(check);
+
+        if (!healthy && counts.ConsecutiveUnhealthyCount == 3
+            && !await db.MonitorIncidents.AnyAsync(
+                x => x.MonitorId == claim.Id && x.ResolvedAt == null, cancellationToken))
+        {
+            db.MonitorIncidents.Add(new MonitorIncident
+            {
+                MonitorId = claim.Id,
+                OpenedAt = checkedAt,
+            });
+        }
+        else if (healthy && counts.ConsecutiveHealthyCount == 2)
+        {
+            var open = await db.MonitorIncidents.SingleOrDefaultAsync(
+                x => x.MonitorId == claim.Id && x.ResolvedAt == null, cancellationToken);
+            if (open is not null)
+            {
+                // A backward clock adjustment must not reject a valid recovery.
+                open.ResolvedAt = checkedAt < open.OpenedAt ? open.OpenedAt : checkedAt;
+            }
+        }
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return 1;
